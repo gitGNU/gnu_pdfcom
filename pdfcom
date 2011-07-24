@@ -1,0 +1,98 @@
+#!/usr/bin/python
+
+# Usage:
+#   find-acrobat-commercial.py example.com > urls-with-mentions-of-acrobat.txt
+#
+# Example:
+#   cat domaeneliste.txt | parallel -j1 stdout python find-acrobat-commercial.py {} \>out/{}
+#
+# The program will find the URLs using Google that contain the string
+# 'Acrobat' or 'Adobe' and will then download each URL to make sure
+# the string 'Acrobat' is still on the page and not just in Google's
+# cache.
+#
+# Each line will contain the <title> of the page followed by the URL
+# If the string is only in Google's cache and not on the page the line
+# will be prepended with 'Only in Google cache'
+#
+# Google only allows for 100 free queries per 24 hours so use them wisely
+# When the 100 free queries are used the script fail with
+#   Traceback (most recent call last):
+#    File "find-acrobat-commercial.py", line 35, in <module>
+#    for u in results:
+#        File "find-acrobat-commercial.py", line 25, in google_results
+#            yield json['responseData']['results']
+#            TypeError: 'NoneType' object is unsubscriptable
+#
+# License:
+#   GPLv3+ (See COPYING)
+#
+#    This program is free software: you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation, either version 3 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+# 
+# Copyright:
+#   Copyright (C) 2011 Ole Tange http://ole.tange.dk
+
+import urllib
+import simplejson
+import re
+import sys
+import time
+
+# Sleep to meet quota
+quotasleep = 86400/100
+#quotasleep = 864/100
+
+def google_results(domain):
+  query = urllib.urlencode({'q' : 'site:'+domain+' acrobat -filetype:pdf',
+                            'key' : 'ABQIAAAAcfu1CUslmPX_Ejjk8sfDzRQMu6F5kZ87DYdZpibI4a_F3oA7PhT-iisFfSChm48qS1Oo60Ky1qjHkQ'})
+  url = 'http://ajax.googleapis.com/ajax/services/search/web?v=1.0&start=5&rsz=8&%s' % (query)
+  search_results = urllib.urlopen(url)
+  json = simplejson.loads(search_results.read())
+  time.sleep(quotasleep)
+  yield json['responseData']['results']
+  for j in json['responseData']['cursor']['pages']:
+    url = 'http://ajax.googleapis.com/ajax/services/search/web?v=1.0&start='+j['start']+'&rsz=8&%s' % (query)
+    search_results = urllib.urlopen(url)
+    json = simplejson.loads(search_results.read())
+    time.sleep(quotasleep)
+    yield json['responseData']['results']
+  query = urllib.urlencode({'q' : 'site:'+domain+' "adobe reader" -filetype:pdf',
+                            'key' : 'ABQIAAAAcfu1CUslmPX_Ejjk8sfDzRQMu6F5kZ87DYdZpibI4a_F3oA7PhT-iisFfSChm48qS1Oo60Ky1qjHkQ'})
+  url = 'http://ajax.googleapis.com/ajax/services/search/web?v=1.0&start=5&rsz=8&%s' % (query)
+  search_results = urllib.urlopen(url)
+  json = simplejson.loads(search_results.read())
+  time.sleep(quotasleep)
+  yield json['responseData']['results']
+  for j in json['responseData']['cursor']['pages']:
+    url = 'http://ajax.googleapis.com/ajax/services/search/web?v=1.0&start='+j['start']+'&rsz=8&%s' % (query)
+    search_results = urllib.urlopen(url)
+    json = simplejson.loads(search_results.read())
+    time.sleep(quotasleep)
+    yield json['responseData']['results']
+
+domain = sys.argv[1]
+results = google_results(domain)
+for u in results:
+  for i in u:
+    fh = urllib.urlopen(i['url'])
+    content = fh.read()
+    m = re.search("([Aa]crobat|[Aa]dobe)",content)
+    if m == None or m.group(0) == None:
+      # The string Acrobat is only in Google's cache. Not in the real page
+      a = domain + "\tOnly in Google cache\t" + i['url'] + "\t" + i['title']
+      print a.encode('ascii', 'replace')
+    else:
+      a = domain + "\tCommercial still exists\t" + i['url'] + "\t" + i['title']
+      print a.encode('ascii', 'replace')
+
